@@ -1,0 +1,39 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "DomainAdminPassword": {
+            "value": "m1m@Adminm1m@"
+        },
+        "CaAdminPassword": {
+            "value": "m1m@Adminm1m@"
+        },
+        "UNIQUESTRING": {
+            "value": "20251103"
+        },
+        "Recipient": {
+            "value": "admin@MngEnv829153.onmicrosoft.com"
+        },
+        "virtualNetworkName": {
+            "value": "ad-vnet"
+        },
+        "virtualNetworkAddressRange": {
+            "value": "10.0.0.0/16"
+        },
+        "subnetName": {
+            "value": "ad-vnet-subnet"
+        },
+        "subnetRange": {
+            "value": "10.0.0.0/24"
+        },
+        "DomainName": {
+            "value": "demo.com"
+        },
+        "renewalThresholdDays": {
+            "value": 40
+        },
+        "_artifactsLocation": {
+            "value": "https://raw.githubusercontent.com/microsoft/adfs-sample-mfa-adapt-enrollment/main/"
+        }
+    }
+}

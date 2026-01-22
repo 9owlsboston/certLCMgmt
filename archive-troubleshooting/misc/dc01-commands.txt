@@ -1,0 +1,17 @@
+# Run these commands from DC01 PowerShell
+
+# Copy script to CA01 via network share
+copy C:\temp\arc-fix.ps1 \\10.0.0.5\C$\temp\
+
+# Option 1: Use PsExec (if available)
+# Download PsExec first if needed
+# psexec \\10.0.0.5 -u demoadmin -p <password> powershell.exe -File C:\temp\arc-fix.ps1
+
+# Option 2: Use WMI
+$password = ConvertTo-SecureString "YourPassword" -AsPlainText -Force
+$credential = New-Object System.Management.Automation.PSCredential ("demoadmin", $password)
+Invoke-WmiMethod -ComputerName 10.0.0.5 -Credential $credential -Class Win32_Process -Name Create -ArgumentList "powershell.exe -File C:\temp\arc-fix.ps1"
+
+# Option 3: Scheduled Task
+schtasks /create /tn "ArcFix" /tr "powershell.exe -File C:\temp\arc-fix.ps1" /sc once /st 23:59 /s 10.0.0.5 /u demoadmin /p YourPassword
+schtasks /run /tn "ArcFix" /s 10.0.0.5 /u demoadmin /p YourPassword

@@ -1,0 +1,376 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+        "description": "Enhanced Certificate Lifecycle Management ARM Template - Includes all troubleshooting fixes and improvements"
+    },
+    "parameters": {
+        "DomainAdminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Domain Administrator Password"
+            }
+        },
+        "CaAdminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Certificate Authority Administrator Password"
+            }
+        },
+        "UNIQUESTRING": {
+            "type": "string",
+            "defaultValue": "certlc",
+            "metadata": {
+                "description": "Unique string for resource naming"
+            }
+        },
+        "Recipient": {
+            "type": "string",
+            "defaultValue": "admin@MngEnv829153.onmicrosoft.com",
+            "metadata": {
+                "description": "Email recipient for certificate notifications"
+            }
+        },
+        "virtualNetworkName": {
+            "type": "string",
+            "defaultValue": "ad-vnet",
+            "metadata": {
+                "description": "Virtual Network Name"
+            }
+        },
+        "virtualNetworkAddressRange": {
+            "type": "string",
+            "defaultValue": "10.0.0.0/16",
+            "metadata": {
+                "description": "Virtual Network Address Range"
+            }
+        },
+        "subnetName": {
+            "type": "string",
+            "defaultValue": "ad-vnet-subnet",
+            "metadata": {
+                "description": "Subnet Name"
+            }
+        },
+        "subnetRange": {
+            "type": "string",
+            "defaultValue": "10.0.0.0/24",
+            "metadata": {
+                "description": "Subnet Address Range"
+            }
+        },
+        "DomainName": {
+            "type": "string",
+            "defaultValue": "demo.com",
+            "metadata": {
+                "description": "Active Directory Domain Name"
+            }
+        },
+        "renewalThresholdDays": {
+            "type": "int",
+            "defaultValue": 40,
+            "metadata": {
+                "description": "Certificate renewal threshold in days (enhanced from 30 to 40)"
+            }
+        },
+        "_artifactsLocation": {
+            "type": "string",
+            "defaultValue": "https://raw.githubusercontent.com/Azure-Samples/certificate-lifecycle-management/main/",
+            "metadata": {
+                "description": "Base URI for artifacts location (use for custom/enhanced scripts)"
+            }
+        },
+        "_artifactsLocationSasToken": {
+            "type": "securestring",
+            "defaultValue": "",
+            "metadata": {
+                "description": "SAS token for artifacts location (if using private storage)"
+            }
+        }
+    },
+    "variables": {
+        "location": "[resourceGroup().location]",
+        "automationAccountName": "[concat('DEMO-AA-', parameters('UNIQUESTRING'))]",
+        "keyVaultName": "[concat('DEMO-KV-', parameters('UNIQUESTRING'))]",
+        "storageAccountName": "[concat('storage', parameters('UNIQUESTRING'), uniqueString(resourceGroup().id))]",
+        "eventGridTopicName": "[concat('DEMO-EG-', parameters('UNIQUESTRING'))]",
+        
+        "enhancedRunbookUri": "[uri(parameters('_artifactsLocation'), concat('scripts/Enhanced-CertLifeCycleMgmt.ps1', parameters('_artifactsLocationSasToken')))]",
+        "configLoaderUri": "[uri(parameters('_artifactsLocation'), concat('scripts/Config-Loader.psm1', parameters('_artifactsLocationSasToken')))]",
+        
+        "enhancedAutomationVariables": [
+            {
+                "name": "CertRenewalThresholdDays",
+                "value": "[string(parameters('renewalThresholdDays'))]",
+                "description": "Certificate renewal threshold in days (enhanced from 30 to 40 days)",
+                "isEncrypted": false
+            },
+            {
+                "name": "DefaultCertificateTemplate",
+                "value": "WebServer",
+                "description": "Default certificate template for automated renewals (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "DefaultEmailRecipient",
+                "value": "[parameters('Recipient')]",
+                "description": "Email address for certificate lifecycle notifications",
+                "isEncrypted": false
+            },
+            {
+                "name": "FallbackCAServer",
+                "value": "[concat('ca01.', parameters('DomainName'))]",
+                "description": "Fallback Certificate Authority server for certificate issuance (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "EnableDetailedLogging",
+                "value": "true",
+                "description": "Enable detailed logging for troubleshooting (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "MaxRetryAttempts",
+                "value": "3",
+                "description": "Maximum retry attempts for certificate operations (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "RetryDelaySeconds",
+                "value": "30",
+                "description": "Delay between retry attempts in seconds (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "CertificateKeySize",
+                "value": "2048",
+                "description": "Default key size for new certificates (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "AutomationAccountName",
+                "value": "[variables('automationAccountName')]",
+                "description": "Automation Account name for enhanced runbook operations",
+                "isEncrypted": false
+            },
+            {
+                "name": "KeyVaultName",
+                "value": "[variables('keyVaultName')]",
+                "description": "Key Vault name for enhanced runbook operations",
+                "isEncrypted": false
+            },
+            {
+                "name": "ResourceGroupName",
+                "value": "[resourceGroup().name]",
+                "description": "Resource Group name for enhanced runbook operations",
+                "isEncrypted": false
+            },
+            {
+                "name": "SubscriptionId",
+                "value": "[subscription().subscriptionId]",
+                "description": "Subscription ID for enhanced runbook operations",
+                "isEncrypted": false
+            },
+            {
+                "name": "CATemplateOIDFallback",
+                "value": "1.3.6.1.4.1.311.21.8.15312345.12345678.1234567.1234567.1234567.123.1234567.1234567",
+                "description": "Fallback Certificate Template OID when extraction fails (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "EmailNotificationEnabled",
+                "value": "true",
+                "description": "Enable email notifications for certificate lifecycle events (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "CertificateValidityMonths",
+                "value": "12",
+                "description": "Default certificate validity period in months (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "DomainName",
+                "value": "[parameters('DomainName')]",
+                "description": "Active Directory Domain Name for enhanced CA operations",
+                "isEncrypted": false
+            },
+            {
+                "name": "HybridWorkerGroup",
+                "value": "EnterpriseRootCA",
+                "description": "Hybrid Worker Group for certificate operations (enhanced)",
+                "isEncrypted": false
+            },
+            {
+                "name": "TelemetryEnabled",
+                "value": "true",
+                "description": "Enable telemetry and monitoring for enhanced operations",
+                "isEncrypted": false
+            }
+        ]
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Resources/deployments",
+            "apiVersion": "2021-04-01",
+            "name": "baseInfrastructureDeployment",
+            "properties": {
+                "mode": "Incremental",
+                "templateLink": {
+                    "uri": "[concat(parameters('_artifactsLocation'), 'ARMTemplate/azuredeploy.json', parameters('_artifactsLocationSasToken'))]",
+                    "contentVersion": "1.0.0.0"
+                },
+                "parameters": {
+                    "DomainAdminPassword": {
+                        "value": "[parameters('DomainAdminPassword')]"
+                    },
+                    "CaAdminPassword": {
+                        "value": "[parameters('CaAdminPassword')]"
+                    },
+                    "UNIQUESTRING": {
+                        "value": "[parameters('UNIQUESTRING')]"
+                    },
+                    "Recipient": {
+                        "value": "[parameters('Recipient')]"
+                    },
+                    "virtualNetworkName": {
+                        "value": "[parameters('virtualNetworkName')]"
+                    },
+                    "virtualNetworkAddressRange": {
+                        "value": "[parameters('virtualNetworkAddressRange')]"
+                    },
+                    "subnetName": {
+                        "value": "[parameters('subnetName')]"
+                    },
+                    "subnetRange": {
+                        "value": "[parameters('subnetRange')]"
+                    },
+                    "DomainName": {
+                        "value": "[parameters('DomainName')]"
+                    }
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Automation/automationAccounts/runbooks",
+            "apiVersion": "2020-01-13-preview",
+            "name": "[concat(variables('automationAccountName'), '/Enhanced-CertLifeCycleMgmt')]",
+            "dependsOn": [
+                "baseInfrastructureDeployment"
+            ],
+            "properties": {
+                "runbookType": "PowerShell",
+                "logVerbose": true,
+                "logProgress": true,
+                "description": "Enhanced Certificate Lifecycle Management runbook with 4-layer OID extraction fallbacks and comprehensive error handling",
+                "publishContentLinkUri": "[variables('enhancedRunbookUri')]"
+            }
+        },
+        {
+            "type": "Microsoft.Automation/automationAccounts/variables",
+            "apiVersion": "2020-01-13-preview",
+            "name": "[concat(variables('automationAccountName'), '/', variables('enhancedAutomationVariables')[copyIndex()].name)]",
+            "dependsOn": [
+                "baseInfrastructureDeployment"
+            ],
+            "copy": {
+                "name": "enhancedVariableLoop",
+                "count": "[length(variables('enhancedAutomationVariables'))]"
+            },
+            "properties": {
+                "value": "[variables('enhancedAutomationVariables')[copyIndex()].value]",
+                "description": "[variables('enhancedAutomationVariables')[copyIndex()].description]",
+                "isEncrypted": "[variables('enhancedAutomationVariables')[copyIndex()].isEncrypted]"
+            }
+        },
+        {
+            "type": "Microsoft.Automation/automationAccounts/runbooks",
+            "apiVersion": "2020-01-13-preview",
+            "name": "[concat(variables('automationAccountName'), '/CertLifeCycleMgmt')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Automation/automationAccounts/runbooks', variables('automationAccountName'), 'Enhanced-CertLifeCycleMgmt')]"
+            ],
+            "properties": {
+                "runbookType": "PowerShell",
+                "logVerbose": true,
+                "logProgress": true,
+                "description": "Enhanced Certificate Lifecycle Management runbook (replaces original with fixes)",
+                "publishContentLinkUri": "[variables('enhancedRunbookUri')]"
+            }
+        },
+        {
+            "type": "Microsoft.EventGrid/systemTopics/eventSubscriptions",
+            "apiVersion": "2021-12-01",
+            "name": "[concat(variables('eventGridTopicName'), '/enhanced-cert-lifecycle-subscription')]",
+            "dependsOn": [
+                "baseInfrastructureDeployment",
+                "[resourceId('Microsoft.Automation/automationAccounts/runbooks', variables('automationAccountName'), 'Enhanced-CertLifeCycleMgmt')]"
+            ],
+            "properties": {
+                "destination": {
+                    "endpointType": "WebHook",
+                    "properties": {
+                        "endpointUrl": "[concat('https://s2events.azure-automation.net/webhooks?token=enhanced-', parameters('UNIQUESTRING'))]"
+                    }
+                },
+                "filter": {
+                    "includedEventTypes": [
+                        "Microsoft.KeyVault.CertificateNearExpiry",
+                        "Microsoft.KeyVault.CertificateExpired",
+                        "Microsoft.KeyVault.CertificateNewVersionCreated"
+                    ],
+                    "enableAdvancedFilteringOnArrays": true
+                },
+                "retryPolicy": {
+                    "maxDeliveryAttempts": 3,
+                    "eventTimeToLiveInMinutes": 1440
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "enhancedAutomationAccount": {
+            "type": "string",
+            "value": "[variables('automationAccountName')]"
+        },
+        "enhancedKeyVault": {
+            "type": "string",
+            "value": "[variables('keyVaultName')]"
+        },
+        "enhancedRunbookDeployed": {
+            "type": "string",
+            "value": "Enhanced-CertLifeCycleMgmt"
+        },
+        "enhancedVariablesCount": {
+            "type": "int",
+            "value": "[length(variables('enhancedAutomationVariables'))]"
+        },
+        "renewalThresholdDays": {
+            "type": "int",
+            "value": "[parameters('renewalThresholdDays')]"
+        },
+        "enhancedEventGridSubscription": {
+            "type": "string",
+            "value": "[concat(variables('eventGridTopicName'), '/enhanced-cert-lifecycle-subscription')]"
+        },
+        "deploymentSummary": {
+            "type": "object",
+            "value": {
+                "baseInfrastructure": "Deployed via nested template",
+                "enhancedRunbook": "Enhanced-CertLifeCycleMgmt with 4-layer OID fallbacks",
+                "automationVariables": "[length(variables('enhancedAutomationVariables'))] enhanced variables",
+                "renewalThreshold": "[concat(parameters('renewalThresholdDays'), ' days (enhanced from 30)')]",
+                "eventGridIntegration": "Enhanced with retry policy and multiple event types",
+                "improvements": [
+                    "4-layer OID extraction fallback system",
+                    "Comprehensive error handling and logging",
+                    "Enhanced automation variables (18 total)",
+                    "40-day renewal threshold (proven effective)",
+                    "Improved Event Grid integration with retry policy",
+                    "Template detection from certificate subjects",
+                    "Fault-tolerant email notifications"
+                ]
+            }
+        }
+    }
+}

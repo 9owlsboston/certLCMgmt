@@ -1,0 +1,27 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "automationAccountName": {
+            "value": "DEMO-AA-20251103"
+        },
+        "keyVaultName": {
+            "value": "DEMO-KV-20251103"
+        },
+        "resourceGroupName": {
+            "value": "rg-demo-certlc"
+        },
+        "emailRecipient": {
+            "value": "admin@MngEnv829153.onmicrosoft.com"
+        },
+        "caServerName": {
+            "value": "ca01.demo.com"
+        },
+        "certificateTemplate": {
+            "value": "WebServer"
+        },
+        "renewalThresholdDays": {
+            "value": 40
+        }
+    }
+}

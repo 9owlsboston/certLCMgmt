@@ -1,0 +1,178 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "automationAccountName": {
+            "type": "string",
+            "defaultValue": "DEMO-AA-20251103",
+            "metadata": {
+                "description": "Name of the Azure Automation Account"
+            }
+        },
+        "keyVaultName": {
+            "type": "string",
+            "defaultValue": "DEMO-KV-20251103",
+            "metadata": {
+                "description": "Name of the Azure Key Vault"
+            }
+        },
+        "resourceGroupName": {
+            "type": "string",
+            "defaultValue": "rg-demo-certlc",
+            "metadata": {
+                "description": "Name of the Resource Group"
+            }
+        },
+        "emailRecipient": {
+            "type": "string",
+            "defaultValue": "admin@MngEnv829153.onmicrosoft.com",
+            "metadata": {
+                "description": "Email recipient for certificate notifications"
+            }
+        },
+        "caServerName": {
+            "type": "string",
+            "defaultValue": "ca01.demo.com",
+            "metadata": {
+                "description": "Certificate Authority server name"
+            }
+        },
+        "certificateTemplate": {
+            "type": "string",
+            "defaultValue": "WebServer",
+            "metadata": {
+                "description": "Default certificate template for renewals"
+            }
+        },
+        "renewalThresholdDays": {
+            "type": "int",
+            "defaultValue": 40,
+            "metadata": {
+                "description": "Number of days before expiry to trigger renewal"
+            }
+        }
+    },
+    "variables": {
+        "enhancedRunbookName": "Enhanced-CertLifeCycleMgmt",
+        "automationVariables": [
+            {
+                "name": "CertRenewalThresholdDays",
+                "value": "[parameters('renewalThresholdDays')]",
+                "description": "Number of days before certificate expiry to trigger renewal"
+            },
+            {
+                "name": "DefaultCertificateTemplate",
+                "value": "[parameters('certificateTemplate')]",
+                "description": "Default certificate template for automated renewals"
+            },
+            {
+                "name": "DefaultEmailRecipient",
+                "value": "[parameters('emailRecipient')]",
+                "description": "Email address for certificate lifecycle notifications"
+            },
+            {
+                "name": "FallbackCAServer",
+                "value": "[parameters('caServerName')]",
+                "description": "Fallback Certificate Authority server for certificate issuance"
+            },
+            {
+                "name": "EnableDetailedLogging",
+                "value": "true",
+                "description": "Enable detailed logging for troubleshooting"
+            },
+            {
+                "name": "MaxRetryAttempts",
+                "value": "3",
+                "description": "Maximum retry attempts for certificate operations"
+            },
+            {
+                "name": "RetryDelaySeconds",
+                "value": "30",
+                "description": "Delay between retry attempts in seconds"
+            },
+            {
+                "name": "CertificateKeySize",
+                "value": "2048",
+                "description": "Default key size for new certificates"
+            }
+        ]
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Automation/automationAccounts/runbooks",
+            "apiVersion": "2020-01-13-preview",
+            "name": "[concat(parameters('automationAccountName'), '/', variables('enhancedRunbookName'))]",
+            "properties": {
+                "runbookType": "PowerShell",
+                "logVerbose": true,
+                "logProgress": true,
+                "description": "Enhanced Certificate Lifecycle Management runbook with comprehensive error handling and 4-layer OID extraction fallbacks",
+                "publishContentLinkUri": "[uri(deployment().properties.templateLink.uri, 'runbooks/Enhanced-CertLifeCycleMgmt.ps1')]"
+            }
+        },
+        {
+            "type": "Microsoft.Automation/automationAccounts/variables",
+            "apiVersion": "2020-01-13-preview",
+            "name": "[concat(parameters('automationAccountName'), '/', variables('automationVariables')[copyIndex()].name)]",
+            "copy": {
+                "name": "variableLoop",
+                "count": "[length(variables('automationVariables'))]"
+            },
+            "properties": {
+                "value": "[variables('automationVariables')[copyIndex()].value]",
+                "description": "[variables('automationVariables')[copyIndex()].description]",
+                "isEncrypted": false
+            }
+        },
+        {
+            "type": "Microsoft.EventGrid/systemTopics",
+            "apiVersion": "2021-12-01",
+            "name": "[concat(parameters('keyVaultName'), '-topic')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "source": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+                "topicType": "Microsoft.KeyVault.vaults"
+            }
+        },
+        {
+            "type": "Microsoft.EventGrid/systemTopics/eventSubscriptions",
+            "apiVersion": "2021-12-01",
+            "name": "[concat(parameters('keyVaultName'), '-topic/cert-lifecycle-subscription')]",
+            "dependsOn": [
+                "[resourceId('Microsoft.EventGrid/systemTopics', concat(parameters('keyVaultName'), '-topic'))]"
+            ],
+            "properties": {
+                "destination": {
+                    "endpointType": "WebHook",
+                    "properties": {
+                        "endpointUrl": "[concat('https://s2events.azure-automation.net/webhooks?token=', parameters('automationAccountName'))]"
+                    }
+                },
+                "filter": {
+                    "includedEventTypes": [
+                        "Microsoft.KeyVault.CertificateNearExpiry",
+                        "Microsoft.KeyVault.CertificateExpired"
+                    ]
+                }
+            }
+        }
+    ],
+    "outputs": {
+        "automationAccountName": {
+            "type": "string",
+            "value": "[parameters('automationAccountName')]"
+        },
+        "enhancedRunbookName": {
+            "type": "string",
+            "value": "[variables('enhancedRunbookName')]"
+        },
+        "deployedVariables": {
+            "type": "int",
+            "value": "[length(variables('automationVariables'))]"
+        },
+        "eventGridTopic": {
+            "type": "string",
+            "value": "[concat(parameters('keyVaultName'), '-topic')]"
+        }
+    }
+}

@@ -1,0 +1,54 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "DomainAdminPassword": {
+            "value": "m1m@Adminm1m@"
+        },
+        "CaAdminPassword": {
+            "value": "m1m@Adminm1m@"
+        },
+        "UNIQUESTRING": {
+            "value": "certlc"
+        },
+        "Recipient": {
+            "value": "velenliang@microsoft.com"
+        },
+        "virtualNetworkName": {
+            "value": "ad-vnet"
+        },
+        "virtualNetworkAddressRange": {
+            "value": "10.0.0.0/16"
+        },
+        "subnetName": {
+            "value": "ad-vnet-subnet"
+        },
+        "subnetRange": {
+            "value": "10.0.0.0/24"
+        },
+        "DomainName": {
+            "value": "demo.com"
+        },
+        "DomainAdminUserName": {
+            "value": "demoadmin"
+        },
+        "DcVmSize": {
+            "value": "Standard_D2s_v3"
+        },
+        "DcVmName": {
+            "value": "dc01"
+        },
+        "DcPrivateIpAddress": {
+            "value": "10.0.0.4"
+        },
+        "CaVmSize": {
+            "value": "Standard_D2s_v3"
+        },
+        "CaVmName": {
+            "value": "ca01"
+        },
+        "CaAdminUsername": {
+            "value": "caadmin"
+        }
+    }
+}

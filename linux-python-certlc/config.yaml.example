@@ -1,0 +1,47 @@
+# Certificate Lifecycle Management Configuration
+# Copy this file to config.yaml and customize for your environment
+
+azure:
+  subscription_id: "your-subscription-id"
+  tenant_id: "your-tenant-id"
+  key_vault_url: "https://your-keyvault.vault.azure.net/"
+  storage_account_url: "https://yourstorageaccount.blob.core.windows.net/"
+  automation_account_name: "your-automation-account"
+  resource_group: "rg-certlc-prod"
+  location: "eastus"
+
+ca:
+  provider: "lab"  # lab, enterprise, digicert, globalsign, entrust
+  endpoint: ""
+  auth_method: "api_key"  # api_key, certificate, ssh_key
+  auth_credentials:
+    api_key: "${CA_API_KEY}"  # Use environment variable
+  templates:
+    server: "WebServerTemplate"
+    client: "ClientAuthTemplate"
+  timeout: 300
+  retry_count: 3
+
+monitoring:
+  prometheus_enabled: true
+  prometheus_port: 8000
+  grafana_enabled: true
+  grafana_port: 3000
+  log_level: "INFO"
+  log_format: "json"
+  metrics_prefix: "certlc"
+
+idempotency:
+  redis_url: "redis://localhost:6379"
+  lock_timeout: 1800  # 30 minutes
+  operation_window_hours: 2
+  enable_distributed_locking: true
+
+certificate:
+  default_renewal_threshold_days: 30
+  compliance_transition_year: 2029
+  max_certificate_lifetime_days: 365
+  min_key_size: 2048
+  supported_algorithms: 
+    - "RSA"
+    - "ECDSA"
