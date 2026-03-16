@@ -4,6 +4,76 @@
 
 This document proposes an extension to the existing Certificate Lifecycle Management system to support **SSH Certificate signing and lifecycle management** using a **custom Azure-native signing service**. The solution leverages Azure Key Vault for CA key storage, Azure Functions for certificate signing, and integrates with the existing Event Grid and Automation infrastructure.
 
+The architecture follows the **traditional PKI model** with clear separation between Certificate Authority (CA) and Registration Authority (RA) roles, providing enterprise-grade security and auditability.
+
+---
+
+## 🏛️ PKI Architecture Model
+
+This solution implements a **classic PKI Registration Authority pattern** adapted for SSH certificates:
+
+### PKI Role Mapping
+
+| Traditional PKI Component | Azure Implementation | Responsibility |
+|---------------------------|---------------------|----------------|
+| **Certificate Authority (CA)** | Azure Key Vault (HSM-backed) | Holds CA private key, performs cryptographic signing |
+| **Registration Authority (RA)** | Azure Function (SSH Signing Service) | Authenticates requesters, validates policy, requests signing |
+| **Validation Authority (VA)** | Blob Storage (KRL) + Log Analytics | Revocation lists, certificate status |
+| **Directory Service** | Azure AD / Entra ID | Identity source for principals |
+| **Certificate Repository** | Blob Storage + Key Vault | Stores issued certificates and metadata |
+
+### Security Through Separation of Duties
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                         PKI Trust Model                                          │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  User/Host Request                                                               │
+│       │                                                                          │
+│       ▼                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐│
+│  │  REGISTRATION AUTHORITY (Azure Function)                                    ││
+│  │  ─────────────────────────────────────────                                  ││
+│  │  • Authenticates requester via Azure AD token                               ││
+│  │  • Validates request against certificate policy                             ││
+│  │  • Enforces principal/extension restrictions                                ││
+│  │  • Logs all requests to audit trail                                         ││
+│  │  • ⚠️  Does NOT hold CA private key                                         ││
+│  └──────────────────────────────┬──────────────────────────────────────────────┘│
+│                                 │ Validated Request                              │
+│                                 ▼                                                │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐│
+│  │  CERTIFICATE AUTHORITY (Azure Key Vault HSM)                                ││
+│  │  ───────────────────────────────────────────                                ││
+│  │  • HSM-protected CA private key (never exported)                            ││
+│  │  • Performs cryptographic signing operations                                 ││
+│  │  • Key Vault access policy restricts to RA only                             ││
+│  │  • All operations logged to Azure Monitor                                   ││
+│  └──────────────────────────────┬──────────────────────────────────────────────┘│
+│                                 │ Signed Certificate                             │
+│                                 ▼                                                │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐│
+│  │  VALIDATION & REPOSITORY                                                    ││
+│  │  ──────────────────────────                                                 ││
+│  │  • Certificate stored in Blob Storage (metadata)                            ││
+│  │  • Revocation list (KRL) maintained in Blob Storage                         ││
+│  │  • Full audit trail in Log Analytics                                        ││
+│  └─────────────────────────────────────────────────────────────────────────────┘│
+│                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Model Matters
+
+| Security Benefit | Description |
+|------------------|-------------|
+| **Compromise Isolation** | RA breach ≠ CA compromise. Attacker cannot extract CA private key. |
+| **Audit Everything** | RA logs all requests before they reach CA for signing. |
+| **Policy Enforcement** | RA rejects invalid requests before any cryptographic operations. |
+| **HSM Protection** | CA key never leaves Key Vault's FIPS 140-2 Level 2/3 hardware boundary. |
+| **Least Privilege** | RA has "sign" permission only, not "export" or "delete". |
+
 ---
 
 ## 📊 Solution Overview
@@ -157,7 +227,9 @@ Azure Key Vault → Event Grid → Automation Runbook → Enterprise CA → Cert
 
 ## 🔧 Component Specifications
 
-### 1. SSH CA Key Storage (Azure Key Vault)
+### 1. Certificate Authority - SSH CA Key Storage (Azure Key Vault)
+
+> **PKI Role:** Certificate Authority (CA) - Holds private keys, performs signing
 
 | Component | Configuration | Purpose |
 |-----------|---------------|---------|
@@ -165,6 +237,13 @@ Azure Key Vault → Event Grid → Automation Runbook → Enterprise CA → Cert
 | **Host CA Key** | RSA-4096 or Ed25519, HSM-backed | Signs host SSH certificates |
 | **Key Rotation Policy** | 2 years, automated | CA key lifecycle management |
 | **Access Policy** | Managed Identity only | Zero standing privileges |
+
+**Key Vault Access Controls (Least Privilege):**
+| Identity | Permissions | Rationale |
+|----------|-------------|-----------|
+| SSH Signing Function (RA) | `keys/sign` only | Can request signing, cannot export |
+| CA Administrators | `keys/rotate`, `keys/backup` | Key lifecycle, no sign permission |
+| Break-glass Account | Full | Emergency recovery only, PIM-protected |
 
 ```bash
 # Key Vault structure for SSH CA
@@ -179,11 +258,21 @@ keyvault/
     └── (existing X.509 certs)
 ```
 
-### 2. SSH Signing Service (Azure Function)
+### 2. Registration Authority - SSH Signing Service (Azure Function)
+
+> **PKI Role:** Registration Authority (RA) - Authenticates, validates policy, requests signing
 
 **Runtime:** Python 3.11+ (aligns with existing linux-python-certlc project)  
 **Trigger:** HTTP (API) + Event Grid (automation)  
 **Authentication:** Azure AD + Managed Identity
+
+**RA Responsibilities:**
+- ✅ Authenticate requester (Azure AD token validation)
+- ✅ Authorize request (check group membership, allowed principals)
+- ✅ Validate against certificate policy (duration, extensions)
+- ✅ Log request to audit trail before signing
+- ✅ Request signing from CA (Key Vault)
+- ❌ Never holds or accesses CA private key directly
 
 #### API Endpoints
 
@@ -228,7 +317,9 @@ keyvault/
 }
 ```
 
-### 3. Certificate Distribution & Deployment
+### 3. Validation Authority & Repository - Certificate Store (Blob Storage)
+
+> **PKI Role:** Validation Authority (VA) + Certificate Repository
 
 #### User Certificates
 - **Delivery:** Direct API response to requesting client
@@ -241,9 +332,15 @@ keyvault/
 - **Validity:** Medium-lived (30-90 days)
 - **sshd_config:** `HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub`
 
-#### CA Public Key Distribution
+#### CA Public Key Distribution (Trust Anchors)
 - **User CA → Hosts:** `/etc/ssh/trusted_user_ca_keys`
 - **Host CA → Clients:** `~/.ssh/known_hosts` or `ssh_known_hosts`
+
+#### Revocation (Key Revocation List - KRL)
+- **Storage:** Blob container `ssh-certificates/revocation/`
+- **Format:** OpenSSH KRL binary format
+- **Distribution:** Hosts pull KRL periodically or via Automation
+- **sshd_config:** `RevokedKeys /etc/ssh/revoked_keys`
 
 ### 4. Azure Automation Integration
 
